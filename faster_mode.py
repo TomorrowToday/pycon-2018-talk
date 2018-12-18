@@ -44,5 +44,5 @@ def find_start(firewall):
             return t_start
 
 
-cProfile.run('start = find_start(firewall_from_file("firewall.input"))')
+cProfile.run('start = find_start(firewall_from_file("./day13/input.txt"))')
 print(f'start at {start}')
