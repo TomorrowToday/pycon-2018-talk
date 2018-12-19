@@ -1,33 +1,88 @@
 import cProfile
 import itertools
 
+class Scanner():
+    def __init__(self, position, cycle_length, shift=True):
+        '''
+        Create a scanner and shift its cycle by an offset determined by its
+        position and frequency. Shifting the cycle means we no longer care about
+        the position of the scanner in the firewall.
 
-def build_scanner(scanner_pos, scanner_height):
-    '''
-    Create a scanner. A scanner's cycle frequency is offset by its position so
-    that an entire row of zipped scanners represents one start time run. False
-    blocks a packet and True let's it past.
-    
-    '''
-    freq = (scanner_height - 1) * 2
-    scanner = [True] * freq
-    cycle_offset_due_to_pos = 0 - scanner_pos%freq
-    if cycle_offset_due_to_pos < 0:
-        cycle_offset_due_to_pos += freq
-    scanner[cycle_offset_due_to_pos] = False
-    return scanner
+        '''
+        self._cycle = [1] + [0] * (cycle_length-1)
+        if shift is True:
+            self.shift_cycle(position)
+
+    def __len__(self,):
+        return len(self._cycle)
+
+    def __iter__(self):
+        for pos in self._cycle:
+            yield pos
+
+    def shift_cycle(self, position):
+        '''
+        Shift the cycle relative to its position. Allows for scanners of
+        similar size or harmonic cycle times to be merged/flattened into a
+        single scanner. Removes the need to look ahead from the start time to
+        see if a packet will pass the scanner.
+        '''
+        self._cycle = [0] * len(self)
+        offset = 0 - (position % len(self))
+        if offset < 0:
+            offset += len(self)
+        self._cycle[offset] = 1
+
+    def merge(self, scanner):
+        '''
+        Merge the passed scanner's cycle into this scanner.
+        '''
+        self._cycle = tuple((max(v) for v in zip(scanner, self)))
 
 
-def firewall_from_file(firewall_file):
-    '''
-    From a firewall input file, iterate back a firewall's scanners.
+class Firewall():
+    def __init__(self, filepath):
+        '''
+        From a firewall input file, create a firewall's scanners.
 
-    '''
-    with open(firewall_file) as f:
-        for line in f:
-            scanner_pos, scanner_height = map(int, line.strip().split(': '))
-            scanner = build_scanner(scanner_pos, scanner_height)
+        '''
+        self.scanners = {}
+        with open(filepath) as f:
+            for line in f:
+                scanner_pos, scanner_height = map(int, line.strip().split(': '))
+                scanner_freq = 2 * (scanner_height - 1)
+                scanner = Scanner(scanner_pos, scanner_freq)
+                self.add_scanner(scanner)
+
+        self.optimize()
+
+    def __iter__(self):
+        for scanner in self.scanners.values():
             yield itertools.cycle(scanner)
+
+    def add_scanner(self, scanner):
+        if len(scanner) in self.scanners:
+            self.scanners[len(scanner)].merge(scanner)
+        else:
+            self.scanners[len(scanner)] = scanner
+
+    def optimize(self):
+        """
+        Merge small scanners into larger ones if possible to reduce number of
+        scanners.
+        """
+        cycle_lengths = sorted(self.scanners.keys())
+        cycle_max = max(cycle_lengths)
+        for cycle_lenth in cycle_lengths:
+            for factor in itertools.count(start=2):
+                cycle_key = cycle_lenth * factor
+                if cycle_key > cycle_max or not cycle_key in self.scanners:
+                    break
+                else:
+                    expanded_scanner = list(self.scanners[cycle_lenth]) * factor
+                    self.scanners[cycle_key].merge(expanded_scanner)
+                    del self.scanners[cycle_lenth]
+                    break
 
 
 def find_start(firewall):
@@ -38,11 +93,12 @@ def find_start(firewall):
 
     '''
     for t_start, possible_solution in enumerate(zip(*firewall)):
-        if False in possible_solution:
+        if 1 in possible_solution:
             continue
         else:
             return t_start
 
 
-cProfile.run('start = find_start(firewall_from_file("./day13/input.txt"))')
+firewall = Firewall(filepath="./day13/input.txt")
+cProfile.run('start = find_start(firewall)')
 print(f'start at {start}')
